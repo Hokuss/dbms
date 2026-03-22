@@ -28,15 +28,3 @@ To optimize performance and file seeking, the system splits data across three sp
 * **Environment**: MSYS2 (GCC/G++)
 * **Graphics/UI**: ImGui, GLFW, GLEW, OpenGL 3
 * **Threading**: Standard C++ Threads (`std::thread`) for internal async operations.
-
-## 📂 Project Structure
-```text
-├── src/
-│   ├── engine/       # Multi-threaded DB logic
-│   ├── storage/      # Schema, Dat, and Blob handlers
-│   └── ui/           # ImGui/OpenGL 3 interface
-├── data/
-│   ├── table.schema
-│   ├── table.dat
-│   └── table.blob
-└── README.md
