@@ -53,6 +53,7 @@ class dbms{
         bool load_schema(const std::string& table_name);
 
         std::vector<db_value> grow(std::string table_name, std::pair<std::string,db_value> request);
+        std::vector<std::vector<db_value>> grows(std::string table_name, std::pair<std::string, db_value> request);
         bool drow(std::string table_name, std::pair<std::string, db_value> request);
 
     public:
@@ -64,6 +65,7 @@ class dbms{
         std::future<bool> insert_row(std::string table_name, std::vector<db_value> row_data);
         std::future<bool> delete_row(std::string table_name, std::pair<std::string, db_value> request);
         std::future<std::vector<db_value>> get_row(std::string table_name, std::pair<std::string,db_value> request);
+        std::future<std::vector<std::vector<db_value>>> get_rows(std::string table_name, std::pair<std::string, db_value> request);
 
 };
 
