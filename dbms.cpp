@@ -1,5 +1,4 @@
 #include "dbms.hpp"
-#include "utils.hpp"
 #include <fstream>
 #include <cstring>
 #include <filesystem>
@@ -8,6 +7,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <vector>
+#include <chrono>
 namespace fs = std::filesystem;
 
 namespace{
@@ -30,6 +30,13 @@ namespace{
     };
 
     std::unordered_map<std::string, table_schema> schema_cache;
+}
+
+double current_time() {
+    using namespace std::chrono;
+    auto now = high_resolution_clock::now();
+    duration<double> epoch_duration = now.time_since_epoch();
+    return epoch_duration.count();
 }
 
 dbms::dbms(unsigned int id) {

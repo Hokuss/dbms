@@ -9,6 +9,7 @@
 #include <memory>
 #include <condition_variable>
 #include <variant>
+#include <functional>
 
 
 using db_value = std::variant<int, float, double, bool, std::string>;
