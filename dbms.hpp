@@ -1,15 +1,14 @@
 #pragma once
 
+#include <future>
 #include <vector>
 #include <thread>
 #include <atomic>
 #include <queue>
 #include <mutex>
-#include <future>
-#include <memory>
 #include <condition_variable>
 #include <variant>
-#include <functional>
+#include <chrono>
 
 
 using db_value = std::variant<int, float, double, bool, std::string>;
@@ -28,6 +27,26 @@ struct column{
     unsigned int size = 4;
 };
 
+enum class request_type {
+    null,
+    create_group,
+    set_group_rule,
+    create_table,
+    set_table_rule,
+    get_rows,
+    insert_rows,
+    delete_rows
+};
+
+struct request {
+    request_type main = request_type::null;
+    std::string table;
+    std::string group;
+    std::vector<std::string> args;
+    std::chrono::duration<double> start_time, end_time;
+    std::promise<std::vector<std::vector<db_value>>> result;
+};
+
 
 class dbms{
     private:
@@ -35,53 +54,19 @@ class dbms{
         void loop();
         std::atomic<bool> active{true};
 
-        std::thread dbms_thread;
-        std::queue<std::function<void()>> task_queue;
+        std::thread orch_thread;
+        std::queue<request> task_queue;
         std::mutex queue_mutex;
 
         std::condition_variable queue_cv;
 
+        void task_fn();
         std::string database_name; 
-
-        //Task offloader
-        template<typename F>
-        auto submit_task(F&& f) -> std::future<typename std::invoke_result<F>::type>;
-
-        //Actual Functions that run on the seperate thread
-        bool creation_table(std::string table_name, std::vector<column> define);
-        bool irow(std::string table_name, std::vector<db_value> row_data);
-
-        bool load_schema(const std::string& table_name);
-
-        std::vector<db_value> grow(std::string table_name, std::pair<std::string,db_value> request);
-        std::vector<std::vector<db_value>> grows(std::string table_name, std::pair<std::string, db_value> request);
-        bool drow(std::string table_name, std::pair<std::string, db_value> request);
 
     public:
         dbms(unsigned int id);
         ~dbms();
 
         //Wrapers
-        std::future<bool> create_table(std::string table_name, std::vector<column> define);
-        std::future<bool> insert_row(std::string table_name, std::vector<db_value> row_data);
-        std::future<bool> delete_row(std::string table_name, std::pair<std::string, db_value> request);
-        std::future<std::vector<db_value>> get_row(std::string table_name, std::pair<std::string,db_value> request);
-        std::future<std::vector<std::vector<db_value>>> get_rows(std::string table_name, std::pair<std::string, db_value> request);
-
+        std::future<std::vector<std::vector<db_value>>> task(request req);
 };
-
-template<typename F>
-auto dbms::submit_task(F&& f) -> std::future<typename std::invoke_result<F>::type> {
-    
-    using return_type = typename std::invoke_result<F>::type;
-    auto task = std::make_shared<std::packaged_task<return_type()>>(std::forward<F>(f));
-    std::future<return_type> res = task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        task_queue.emplace([task]() { 
-            (*task)();
-        });
-    }
-    queue_cv.notify_one();
-    return res;
-}
