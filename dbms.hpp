@@ -44,6 +44,7 @@ struct request {
     std::string group;
     std::vector<std::string> args;
     std::chrono::duration<double> start_time, end_time;
+    bool success = true;
     std::promise<std::vector<std::vector<db_value>>> result;
 };
 

@@ -8,6 +8,10 @@
 namespace fs = std::filesystem;
 using namespace std::chrono;
 
+namespace utils {
+    
+}
+
 namespace{
     std::vector<std::string> tables;
     fs::path dbms_path;
@@ -28,6 +32,10 @@ namespace{
     };
 
     std::unordered_map<std::string, table_schema> schema_cache;
+
+    struct group_schema {
+        std::unordered_map<std::string, std::string> args;
+    };
     
 }
 
@@ -82,5 +90,22 @@ void dbms::loop() {
 }
 
 void task_fn(request req){
+    //Test the table
+    fs::path group_path = dbms_path/req.group;
+    fs::path table_path = group_path/req.table;
+    if(!fs::exists(group_path) & (req.main!=request_type::create_group)) {
+        req.success = false;
+        req.result.set_value({{"Error:Group Not found"}});
+        return;
+    } else if(!fs::exists(group_path)) {
+        if(!fs::create_directory(group_path)) req.result.set_value({{"Group Creation failed!"}});
+        else req.result.set_value({{"Group Created"}});
+
+        settings(group_path);
+        return;
+    }
+
+    if (!fs::exists()) {
     
+    }
 }
