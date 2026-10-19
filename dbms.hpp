@@ -61,7 +61,8 @@ class dbms{
 
         std::condition_variable queue_cv;
 
-        void task_fn();
+        
+        void task_fn(request req);
         std::string database_name; 
 
     public:
