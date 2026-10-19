@@ -4,9 +4,11 @@
 #include <fstream>
 #include <future>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 namespace fs = std::filesystem;
@@ -28,47 +30,48 @@ namespace{
         database
     };
 
-    struct schema {
-        std::map<std::string, base> args;
-        schema_type type;
-        fs::path schema_path;
-        schema(std::map<std::string,base> a, schema_type b, fs::path pth){
-            check(a);
-            args = std::move(a);
-            type = b;
-            apply_defaults();
-            schema_path = pth;
-        }
-        schema(fs::path pth){
-            schema_path = pth;
-            std::ifstream cnfg(pth, std::ios::binary);
-            std::string buffer;
-            while(std::getline(cnfg,buffer)){
-                int colon_pos = buffer.find(':');
-                int first_pos = buffer.find('"');
-                int second_pos = buffer.find('"', first_pos+1);
-                int third_pos = buffer.find('"', colon_pos);
-                int fourth_pos = buffer.find('"', third_pos+1);
-                if(second_pos>=colon_pos){
-                    throw std::runtime_error("Incorrect Cnfiguration File");
+    class schema {
+        public:
+            std::map<std::string, base> args;
+            schema_type type;
+            fs::path schema_path;
+            schema(std::map<std::string,base> a, schema_type b, fs::path pth){
+                check(a);
+                args = std::move(a);
+                type = b;
+                apply_defaults();
+                schema_path = pth;
+            }
+            schema(fs::path pth){
+                schema_path = pth;
+                std::ifstream cnfg(pth, std::ios::binary);
+                std::string buffer;
+                while(std::getline(cnfg,buffer)){
+                    int colon_pos = buffer.find(':');
+                    int first_pos = buffer.find('"');
+                    int second_pos = buffer.find('"', first_pos+1);
+                    int third_pos = buffer.find('"', colon_pos);
+                    int fourth_pos = buffer.find('"', third_pos+1);
+                    if(second_pos>=colon_pos){
+                        throw std::runtime_error("Incorrect Cnfiguration File");
+                    }
+                    std::string key = buffer.substr(first_pos+1,second_pos-first_pos-1);
+                    base value = parseValue(buffer.substr(third_pos, fourth_pos-third_pos-1));
+                    args[key] = value;
                 }
-                std::string key = buffer.substr(first_pos+1,second_pos-first_pos-1);
-                base value = parseValue(buffer.substr(third_pos, fourth_pos-third_pos-1));
-                args[key] = value;
+                cnfg.close();
             }
-            cnfg.close();
-        }
-        ~schema(){
-            std::ofstream cnfg(schema_path, std::ios::binary|std::ios::trunc);
-            for (auto& itr: args) {
-                std::string buffer = '"'+itr.first+'"';
-                buffer += ':';
-                buffer += '"' + parsebase(itr.second) + '"';
-                buffer += '\n';
-                cnfg.write(buffer.c_str(),buffer.size());
+            ~schema(){
+                std::ofstream cnfg(schema_path, std::ios::binary|std::ios::trunc);
+                for (auto& itr: args) {
+                    std::string buffer = '"'+itr.first+'"';
+                    buffer += ':';
+                    buffer += '"' + parsebase(itr.second) + '"';
+                    buffer += '\n';
+                    cnfg.write(buffer.c_str(),buffer.size());
+                }
+                cnfg.close();
             }
-            cnfg.close();
-        }
         private:
             bool check(std::map<std::string,base> a){
                 return true;
@@ -98,7 +101,22 @@ namespace{
             }
     };
 
-    std::map<std::string, schema> schema_cache;
+    class schema_cache{
+        public:
+            std::shared_ptr<schema> get_schema(fs::path pth){
+                if(holder.find(pth)!=holder.end()) return holder[pth];
+                std::shared_ptr<schema> new_sch = std::make_shared<schema>(schema(pth));
+                holder[pth] = new_sch;
+                return new_sch;
+            }
+
+            void remove(fs::path pth){
+                auto it = holder.find(pth);
+                if(it!= holder.end()) holder.erase(it);
+            }
+        private:
+            std::unordered_map<fs::path, std::shared_ptr<schema>> holder;
+    };
 }
 
 
