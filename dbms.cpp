@@ -1,5 +1,6 @@
 #include "dbms.hpp"
 #include <charconv>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -27,7 +28,8 @@ namespace{
         unstruct,
         file,
         group,
-        database
+        database,
+        null
     };
 
     class schema {
@@ -35,7 +37,7 @@ namespace{
             std::map<std::string, base> args;
             schema_type type;
             fs::path schema_path;
-            schema(std::map<std::string,base> a, schema_type b, fs::path pth){
+            schema(fs::path pth, schema_type b, std::map<std::string,base> a = {}){
                 check(a);
                 args = std::move(a);
                 type = b;
@@ -43,9 +45,14 @@ namespace{
                 schema_path = pth;
             }
             schema(fs::path pth){
-                schema_path = pth;
                 std::ifstream cnfg(pth, std::ios::binary);
+                if(!cnfg.is_open()){
+                    throw std::exception();
+                }
+                schema_path = pth;
                 std::string buffer;
+                //Add the line to get the schema type from the file as well
+
                 while(std::getline(cnfg,buffer)){
                     int colon_pos = buffer.find(':');
                     int first_pos = buffer.find('"');
@@ -110,6 +117,10 @@ namespace{
                 return new_sch;
             }
 
+            void set_schema(std::shared_ptr<schema> sch){
+                holder[sch->schema_path] = sch;
+            }
+
             void remove(fs::path pth){
                 auto it = holder.find(pth);
                 if(it!= holder.end()) holder.erase(it);
@@ -117,6 +128,8 @@ namespace{
         private:
             std::unordered_map<fs::path, std::shared_ptr<schema>> holder;
     };
+
+    schema_cache cacheschema;
 }
 
 
@@ -173,28 +186,48 @@ void dbms::loop() {
     }
 }
 
+void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type type){
+    //Implement the rule procedure. 
+    
+    std::shared_ptr<schema> sch;
+    try {
+        sch = cacheschema.get_schema(rule_pth);
+    } catch (const std::exception &E) {
+        sch = std::make_shared<schema>(schema(rule_pth,type));
+        cacheschema.set_schema(sch);
+    }
+}
+
 void dbms::task_fn(request req){
     //Test the table
     fs::path group_path = dbms_path/req.group;
     fs::path table_path = group_path/req.table;
-    if(!fs::exists(group_path) & (req.main!=request_type::create_group)) {
-        req.success = false;
-        req.result.set_value({{"Error:Group Not found"}});
-        return;
-    } else if(!fs::exists(group_path)) {
-        if(!fs::create_directory(group_path)) req.result.set_value({{"Group Creation failed!"}});
-        else req.result.set_value({{"Group Created"}});
 
-        //Write the settings for the meta data
-        return;
-    }
+    switch (req.main) {
+        case request_type::create_group:
+            if(!fs::create_directory(group_path)) {
+                req.result.set_value({{"Failed to create Group"}});
+                return;
+            }
+        case request_type::set_group_rule:
+            rule_set(group_path/"cnfg.bin", req.args, schema_type::group);
+            break;
+        case request_type::create_table:
+            if(!fs::exists(group_path)){
+                req.result.set_value({{"Specified Group Doesn't Exist"}});
+                return;
+            }
+            if(!fs::create_directory(table_path)){
+                req.result.set_value({{"Failed to create Table"}});
+                return;
+            }
+        case request_type::set_table_rule:
+            rule_set(table_path, req.args, schema_type::table);
+            break;
 
-    if (!fs::exists(table_path) & (req.main!=request_type::create_table)) {
-        if(!fs::create_directory(table_path)) req.result.set_value({{"Table Creation failed!"}});
-        else req.result.set_value({{"Table Created"}});
-
-        //Write the settings for the table
-        return;
+        
+        default:
+            break;
     }
 
 }
