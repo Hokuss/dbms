@@ -225,7 +225,8 @@ void dbms::task_fn(request req){
             rule_set(table_path, req.args, schema_type::table);
             break;
 
-        
+        case request_type::insert_rows:
+            
         default:
             break;
     }
