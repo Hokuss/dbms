@@ -1,3 +1,113 @@
+File structure ->
+
+<db>/
+├── config/                          # engine-level settings (human-edited)
+├── meta/                            # catalog: groups, versions, global manifest
+├── wal/                             # db-wide write-ahead log (or per group)
+│
+└── <group>/                         # a group = schema
+    ├── config/                      # group defaults, inherited by children
+    ├── meta/                        # group catalog: objects, ACLs, schema version
+    │
+    ├── tables/
+    │   └── <table>/
+    │       ├── config/              # partition key, sort key, compression, TTL
+    │       ├── meta/                # schema, versions, manifest of live parts
+    │       └── <partition_id>/                      # e.g. date=2026-10-24
+    │           └── part_<min>_<max>_<level>/        # immutable part
+    │               ├── meta                         # rows, min/max, schema version
+    │               ├── <column>.dat                 # one file per column
+    │               ├── <column>.idx                 # sparse index, marks
+    │               ├── stats                        # zone maps
+    │               ├── bloom                        # bloom filters
+    │               └── checksums
+    │
+    ├── stages/
+    │   └── <stage>/
+    │       ├── config/              # format, delimiter, schema hint, retention, target table
+    │       ├── meta/                # file manifest: size, checksum, state, load_id
+    │       ├── files/               # raw files as received, never modified
+    │       │   └── <yyyy-mm-dd>/
+    │       └── rejects/             # failed rows/files with error reason
+    │
+    ├── graphs/
+    │   └── <graph>/
+    │       ├── config/              # directed/undirected, id type, traversal defaults
+    │       ├── meta/                # labels, edge types, property schemas, manifest
+    │       ├── idmap/               # external key <-> dense internal id
+    │       ├── nodes/
+    │       │   └── <label>/
+    │       │       ├── meta/        # property schema for this label
+    │       │       └── <partition_id>/
+    │       │           └── part_<min>_<max>_<level>/
+    │       │               ├── meta
+    │       │               ├── <property>.dat
+    │       │               ├── <property>.idx
+    │       │               └── checksums
+    │       └── edges/
+    │           └── <edge_type>/
+    │               ├── meta/        # src label, dst label, property schema
+    │               ├── props/       # edge properties, columnar
+    │               │   └── <partition_id>/
+    │               │       └── part_<min>_<max>_<level>/
+    │               └── adjacency/
+    │                   ├── out/     # CSR: src -> dst
+    │                   │   └── part_<min>_<max>_<level>/
+    │                   │       ├── offsets.dat      # one entry per node
+    │                   │       ├── targets.dat      # neighbor ids
+    │                   │       ├── edge_ids.dat     # link into props/
+    │                   │       └── checksums
+    │                   └── in/      # reverse CSR: dst -> src
+    │                       └── part_<min>_<max>_<level>/
+    │
+    ├── vectors/
+    │   └── <collection>/
+    │       ├── config/              # dim, dtype, metric, index type, quantization
+    │       ├── meta/                # payload schema, segment manifest, index versions
+    │       ├── codebooks/           # IVF centroids, PQ codebooks (versioned)
+    │       └── <partition_id>/
+    │           └── seg_<min>_<max>_<level>/         # immutable segment
+    │               ├── meta                         # count, dim, index params
+    │               ├── vectors.dat                  # raw fixed-width vectors
+    │               ├── quantized.dat                # PQ/SQ codes for first-pass scan
+    │               ├── ids.dat                      # internal id <-> external key
+    │               ├── payload/                     # filterable attributes, columnar
+    │               │   ├── <attr>.dat
+    │               │   └── <attr>.idx
+    │               ├── ann/
+    │               │   ├── hnsw.graph               # fixed-degree neighbor arrays
+    │               │   ├── ivf.lists                # inverted lists (if IVF)
+    │               │   └── entry_points
+    │               ├── tombstones                   # delete bitmap
+    │               └── checksums
+    │
+    └── vgraphs/                     # vector + graph hybrid
+        └── <vgraph>/
+            ├── config/              # metric, dim, seed_k, hops, fanout, fusion weights
+            ├── meta/                # labels, edge types, embedding labels, manifest
+            ├── idmap/               # external key <-> dense internal id
+            ├── nodes/
+            │   └── <label>/
+            │       ├── meta/
+            │       └── <partition_id>/
+            │           └── part_<min>_<max>_<level>/
+            │               ├── meta
+            │               ├── <property>.dat
+            │               ├── embedding.dat        # vector column
+            │               ├── quantized.dat
+            │               ├── ann/                 # per-label ANN index
+            │               └── checksums
+            ├── edges/
+            │   └── <edge_type>/
+            │       ├── meta/        # src/dst label, origin: explicit | derived
+            │       ├── props/       # edge properties (+ optional embedding.dat)
+            │       └── adjacency/
+            │           ├── out/
+            │           └── in/
+            └── knn/                 # derived "similar_to" edges from vectors
+                └── <label>/
+                    └── part_<min>_<max>_<level>/    # fixed-degree neighbor lists
+
 Future Developements->
 1> Access Controls
 2> Rule Sets Decision

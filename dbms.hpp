@@ -10,21 +10,11 @@
 #include <variant>
 #include <chrono>
 
+using base = std::variant<bool, int, double, std::string>;
+using table_row = std::vector<base>;
 
-using db_value = std::variant<int, float, double, bool, std::string>;
-
-enum class columntype{
-    number,
-    date,
-    timestamp,
-    text,
-    boolean
-};
-
-struct column{
-    std::string name = "";
-    columntype type = columntype::text;
-    unsigned int size = 4;
+struct table_data{
+    std::vector<table_row> data;
 };
 
 enum class request_type {
@@ -38,14 +28,24 @@ enum class request_type {
     delete_rows
 };
 
+enum class col_type {
+    boolean,
+    integer,
+    number,
+    varchar,
+    time,
+    date,
+    null
+};
+
 struct request {
     request_type main = request_type::null;
     std::string table;
     std::string group;
     std::vector<std::string> args;
+    std::vector<table_row> data;
     std::chrono::duration<double> start_time, end_time;
-    bool success = true;
-    std::promise<std::vector<std::vector<db_value>>> result;
+    std::promise<table_data> result;
 };
 
 
@@ -70,5 +70,5 @@ class dbms{
         ~dbms();
 
         //Wrapers
-        std::future<std::vector<std::vector<db_value>>> task(request req);
+        std::future<table_data> task(request req);
 };

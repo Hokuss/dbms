@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 #include <cassert>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -12,6 +13,24 @@ void check(bool condition, const std::string& test_name) {
         std::cout << "[PASS] " << test_name << std::endl;
     } else {
         std::cout << "[FAIL] " << test_name << std::endl;
+    }
+}
+
+void print(table_data b){
+    auto a = b.data;
+    for(auto it: a){
+        for(auto in: it){
+            switch (in.index()) {
+                case 0: std::cout<<std::get<bool>(in)<<std::endl;
+                    break;
+                case 1: std::cout<<std::get<int>(in)<<std::endl;
+                    break;
+                case 2: std::cout<<std::get<double>(in)<<std::endl;
+                    break;
+                case 4: std::cout<<std::get<std::string>(in)<<std::endl;
+                    break;
+            }
+        }
     }
 }
 
@@ -25,6 +44,20 @@ void cleanup(const std::string& db_name) {
 
 int main() {
    dbms a(1);
-   auto tree = a.task({});
-   tree.get();
+
+   //Creating a group
+   request req = {request_type::create_group, "null", "apple"};
+   auto tree = a.task(std::move(req));
+   auto ans = tree.get();
+   print(ans);
+
+   //Creating a table
+   req = {request_type::create_table, "plastic", "apple"};
+   tree = a.task(std::move(req));
+   ans = tree.get();
+   print(ans);
+
+   //Cleaning up
+   cleanup("1");
 }
+//abc = fk

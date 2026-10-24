@@ -15,9 +15,6 @@
 namespace fs = std::filesystem;
 using namespace std::chrono;
 
-using base = std::variant<bool, int, double, std::string>;
-using table_row = std::vector<base>;
-
 namespace{
     std::vector<std::string> tables;
     fs::path dbms_path;
@@ -37,6 +34,7 @@ namespace{
             std::map<std::string, base> args;
             schema_type type;
             fs::path schema_path;
+            std::pair<std::string, col_type> cols;
             schema(fs::path pth, schema_type b, std::map<std::string,base> a = {}){
                 check(a);
                 args = std::move(a);
@@ -132,13 +130,49 @@ namespace{
     schema_cache cacheschema;
 }
 
+namespace utils{
+    void trim(std::string_view &a){
+        if (a.size()<=1) return;
+        int i = 0, j = a.size()-1;
+        for (i = 0; i<a.size(); i++) {
+            if(a[i]==' ' | a[i]=='-' | a[i]=='"') continue;
+            break;  
+        }
+        for (; j>=i;j--) {
+            if(a[j]!=' ' & a[j]!='"') break;
+        }
+        a = a.substr(i, j-i+1);
+    }
 
-
-duration<double> current_time() {
-    auto now = high_resolution_clock::now();
-    duration<double> epoch_duration = now.time_since_epoch();
-    return epoch_duration;
+    
+    duration<double> current_time() {
+        auto now = high_resolution_clock::now();
+        duration<double> epoch_duration = now.time_since_epoch();
+        return epoch_duration;
+    }
 }
+
+std::map<std::string, base> arg_parser(const std::vector<std::string> &a){
+    std::map<std::string, base> answer; 
+    for (auto it : a) {
+        std::string_view str = it;
+        std::string_view key = str.substr(0,str.find('='));
+        std::string_view value_str = str.substr(str.find('=')+1, str.size()-str.find('=') - 1);
+        utils::trim(value_str);
+        base value;
+        if(value_str=="true") value = true;
+        else if (value_str=="false") value = false;
+        else if (std::isdigit(value_str[0]) & (value_str.find('.')==std::string_view::npos)) value = std::stod(std::string(value_str));
+        else if (std::isdigit(value_str[0]) & (value_str.find('.')!=std::string_view::npos)) value = std::stoi(std::string(value_str));
+        else value = std::string(value_str.substr(0,value_str.size()-1));
+        utils::trim(key);
+        answer[std::string(key)] = value;
+    }
+    return answer;
+}
+
+
+
 
 dbms::dbms(unsigned int id) {
     this->database_name = std::to_string(id);
@@ -154,7 +188,7 @@ dbms::~dbms(){
 }
 
 //Task Submitter
-std::future<std::vector<std::vector<db_value>>> dbms::task(request req){
+std::future<table_data> dbms::task(request req){
     auto fut = req.result.get_future();
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
@@ -177,11 +211,12 @@ void dbms::loop() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             queue_cv.wait(lock, [this] {return !task_queue.empty() || !active;});
+            if (task_queue.empty()) return;
 
             task = std::move(task_queue.front());
             task_queue.pop();
         }
-        task.start_time = current_time();
+        task.start_time = utils::current_time();
         std::thread(&dbms::task_fn, this, std::move(task)).detach();
     }
 }
@@ -196,6 +231,14 @@ void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type typ
         sch = std::make_shared<schema>(schema(rule_pth,type));
         cacheschema.set_schema(sch);
     }
+    std::map<std::string, base> update = arg_parser(rules);
+    for(auto it:update){
+        sch->args[it.first] = it.second;
+    }
+}
+
+void insert_rows(request *req, fs::path loc){
+
 }
 
 void dbms::task_fn(request req){
@@ -206,7 +249,7 @@ void dbms::task_fn(request req){
     switch (req.main) {
         case request_type::create_group:
             if(!fs::create_directory(group_path)) {
-                req.result.set_value({{"Failed to create Group"}});
+                req.result.set_value({{{"Failed to create Group"}}});
                 return;
             }
         case request_type::set_group_rule:
@@ -214,11 +257,11 @@ void dbms::task_fn(request req){
             break;
         case request_type::create_table:
             if(!fs::exists(group_path)){
-                req.result.set_value({{"Specified Group Doesn't Exist"}});
+                req.result.set_value({{{"Specified Group Doesn't Exist"}}});
                 return;
             }
             if(!fs::create_directory(table_path)){
-                req.result.set_value({{"Failed to create Table"}});
+                req.result.set_value({{{"Failed to create Table"}}});
                 return;
             }
         case request_type::set_table_rule:
@@ -226,9 +269,24 @@ void dbms::task_fn(request req){
             break;
 
         case request_type::insert_rows:
-            
+            insert_rows(&req, table_path);
+            break;
         default:
             break;
+    }
+    req.end_time = utils::current_time();
+    switch (req.main) {
+        case request_type::create_table:
+            req.result.set_value({{{"Table Created"}}});
+            break;
+        case request_type::create_group:
+            req.result.set_value({{{"Group Created"}}});
+            break;
+        case request_type::set_group_rule:
+        case request_type::set_table_rule:
+            req.result.set_value({{{"New Rule Added"}}});
+        default:
+            req.result.set_value({{{"Task Status Unknown. Uh-oh"}}});
     }
 
 }
