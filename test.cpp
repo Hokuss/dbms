@@ -46,13 +46,13 @@ int main() {
    dbms a(1);
 
    //Creating a group
-   request req = {request_type::create_group, "null", "apple"};
+   request req = {request_type::create_group, "fruits", "null"};
    auto tree = a.task(std::move(req));
    auto ans = tree.get();
    print(ans);
 
    //Creating a table
-   req = {request_type::create_table, "plastic", "apple"};
+   req = {request_type::create_table, "fruits", "apple"};
    tree = a.task(std::move(req));
    ans = tree.get();
    print(ans);

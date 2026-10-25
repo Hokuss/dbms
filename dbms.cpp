@@ -1,5 +1,6 @@
 #include "dbms.hpp"
 #include <charconv>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -15,18 +16,18 @@
 namespace fs = std::filesystem;
 using namespace std::chrono;
 
+using fut_proc = std::variant<std::vector<std::string>, std::vector<table_row>>;
+
 namespace{
     std::vector<std::string> tables;
     fs::path dbms_path;
 
-
     enum class schema_type {
-        table,
-        unstruct,
-        file,
-        group,
-        database,
-        null
+        meta,
+        config,
+        columns,
+        access,
+        error
     };
 
     class schema {
@@ -34,7 +35,6 @@ namespace{
             std::map<std::string, base> args;
             schema_type type;
             fs::path schema_path;
-            std::pair<std::string, col_type> cols;
             schema(fs::path pth, schema_type b, std::map<std::string,base> a = {}){
                 check(a);
                 args = std::move(a);
@@ -48,9 +48,12 @@ namespace{
                     throw std::exception();
                 }
                 schema_path = pth;
-                std::string buffer;
-                //Add the line to get the schema type from the file as well
+                if(pth.filename()=="column.bin") type = schema_type::columns;
+                else if (pth.filename()=="cnfg.bin") type = schema_type::config;
+                else if (pth.filename()=="meta.bin") type = schema_type::meta;
+                else type = schema_type::error;
 
+                std::string buffer;
                 while(std::getline(cnfg,buffer)){
                     int colon_pos = buffer.find(':');
                     int first_pos = buffer.find('"');
@@ -76,6 +79,17 @@ namespace{
                     cnfg.write(buffer.c_str(),buffer.size());
                 }
                 cnfg.close();
+            }
+
+            std::vector<std::pair<std::string,col_type>> get_columns(){
+                if (type!=schema_type::columns) {
+                    throw std::logic_error("get_columns() called on a schema type that is not a column definition.");
+                }
+                std::vector<std::pair<std::string, col_type>> result;
+                for (auto it : args) {
+                    result.push_back(std::make_pair(it.first, parse_cols(it.second)));
+                }
+                return result;
             }
         private:
             bool check(std::map<std::string,base> a){
@@ -104,6 +118,21 @@ namespace{
                 if (auto* p = std::get_if<std::string>(&b)) return *p;
                 return "";
             }
+            col_type parse_cols(base a){
+                if(a.index()==2) {
+                    return col_type(std::get<int>(a));
+                }
+                else if (a.index()==4) {
+                    std::string temp = std::get<std::string>(a);
+                    if(temp=="boolean") return col_type::boolean;
+                    else if (temp=="integer") return col_type::integer;
+                    else if (temp=="number") return col_type::number;
+                    else if (temp=="varchar") return col_type::varchar;
+                    // else if (temp=="date") return col_type::date;
+                    // else if (temp=="time") return col_type::time;
+                    else return col_type::null; 
+                } else return col_type::null;
+            }
     };
 
     class schema_cache{
@@ -128,6 +157,31 @@ namespace{
     };
 
     schema_cache cacheschema;
+
+    enum class entity_type{
+        table,
+        stages,
+        graphs,
+        vecotrs,
+        vgraphs
+    };
+
+    enum class task_type{
+        insertr,
+        delr,
+        getr
+    };
+
+    struct bkg_request{
+        std::string group;
+        entity_type ent_type;
+        std::string entity;
+        task_type t;
+        fut_proc a;
+    };
+
+    std::queue<bkg_request> bkg_queue;
+    std::mutex bkg_mutex;
 }
 
 namespace utils{
@@ -238,13 +292,38 @@ void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type typ
 }
 
 void insert_rows(request *req, fs::path loc){
-
+    std::shared_ptr<schema> data_structure = cacheschema.get_schema(loc/"col.bin");
+    std::vector<std::pair<std::string, col_type>> columns(data_structure->get_columns());
+    bool ok = true;
+    for (auto it : req->data) {
+        if(it.size()!=columns.size()) {
+            req->result.set_value({{{"Incorrect Size for the insertion operation"}}});
+            break;
+        }
+        for(int i = 0;i<it.size();i++){
+            if(it[i].index()!= static_cast<size_t>(columns[i].second)) {
+                req->result.set_value({{{"Input Data doesn't match schema column type"}}});
+                ok = false;
+                break;
+            }
+        }
+        if(ok==false) break;
+    }
+    if(ok) {
+        bkg_request bkg({req->entity, entity_type::table, req->entity, task_type::insertr, std::move(req->data)});
+        {
+            bkg_mutex.lock();
+            bkg_queue.push(bkg);
+        }
+        req->result.set_value({{{std::to_string(req->data.size())+" rows inserted."}}});
+    }
 }
 
+//Function router
 void dbms::task_fn(request req){
     //Test the table
     fs::path group_path = dbms_path/req.group;
-    fs::path table_path = group_path/req.table;
+    fs::path entity_path;
 
     switch (req.main) {
         case request_type::create_group:
@@ -253,23 +332,28 @@ void dbms::task_fn(request req){
                 return;
             }
         case request_type::set_group_rule:
-            rule_set(group_path/"cnfg.bin", req.args, schema_type::group);
+            rule_set(group_path/"cnfg.bin", req.args, schema_type::config);
             break;
         case request_type::create_table:
             if(!fs::exists(group_path)){
                 req.result.set_value({{{"Specified Group Doesn't Exist"}}});
                 return;
             }
-            if(!fs::create_directory(table_path)){
+            entity_path = group_path/"table"/req.entity;
+            if(!fs::create_directory(entity_path)){
                 req.result.set_value({{{"Failed to create Table"}}});
                 return;
             }
+            rule_set(entity_path/"col.bin", req.args, schema_type::columns);
+            break;
         case request_type::set_table_rule:
-            rule_set(table_path, req.args, schema_type::table);
+            entity_path = group_path/"table"/req.entity/"cnfig.bin";
+            rule_set(entity_path, req.args, schema_type::config);
             break;
 
         case request_type::insert_rows:
-            insert_rows(&req, table_path);
+            entity_path = group_path/"table"/req.entity;
+            insert_rows(&req, entity_path);
             break;
         default:
             break;
