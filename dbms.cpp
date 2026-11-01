@@ -30,6 +30,7 @@ namespace{
         error
     };
 
+    //Any overhead writer/reader class
     class schema {
         public:
             std::map<std::string, base> args;
@@ -184,6 +185,7 @@ namespace{
     std::mutex bkg_mutex;
 }
 
+//Utility functions that can be used in other Projects
 namespace utils{
     void trim(std::string_view &a){
         if (a.size()<=1) return;
@@ -206,6 +208,7 @@ namespace utils{
     }
 }
 
+//Argumnet parser for the args to map conversion
 std::map<std::string, base> arg_parser(const std::vector<std::string> &a){
     std::map<std::string, base> answer; 
     for (auto it : a) {
@@ -227,7 +230,7 @@ std::map<std::string, base> arg_parser(const std::vector<std::string> &a){
 
 
 
-
+//Main Database
 dbms::dbms(unsigned int id) {
     this->database_name = std::to_string(id);
     orch_thread = std::thread(&dbms::loop, this);
@@ -275,6 +278,7 @@ void dbms::loop() {
     }
 }
 
+//Sets rule
 void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type type){
     //Implement the rule procedure. 
     
@@ -291,6 +295,7 @@ void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type typ
     }
 }
 
+//Inserts Rows into a table
 void insert_rows(request *req, fs::path loc){
     std::shared_ptr<schema> data_structure = cacheschema.get_schema(loc/"col.bin");
     std::vector<std::pair<std::string, col_type>> columns(data_structure->get_columns());
@@ -310,13 +315,15 @@ void insert_rows(request *req, fs::path loc){
         if(ok==false) break;
     }
     if(ok) {
-        bkg_request bkg({req->entity, entity_type::table, req->entity, task_type::insertr, std::move(req->data)});
-        {
-            bkg_mutex.lock();
-            bkg_queue.push(bkg);
-        }
+        fs::path partition_path = loc/"part";
+        
         req->result.set_value({{{std::to_string(req->data.size())+" rows inserted."}}});
     }
+
+    /*
+        create a new partition and save all the rows being inserted. 
+        rebalance later
+    */
 }
 
 //Function router

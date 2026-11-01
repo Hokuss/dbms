@@ -15,13 +15,16 @@ enum class col_type {
     boolean,    //1 Byte
     integer,    //4 Bytes
     number,     //8 Bytes
-    varchar,    //2 Bytes (pointer)
+    varchar,    //4 Bytes (pointer)
     // time,       //8 bytes
     // date,       //4 bytes
     null        //0 Bytes
 };
 
+//Basic value (need to add vector as well)
 using base = std::variant<bool, int, double, std::string>;
+
+//For each row on the table
 using table_row = std::vector<base>;
 
 //Basic Data Structure. (Supports all the functions like join and filter)
