@@ -16,8 +16,6 @@
 namespace fs = std::filesystem;
 using namespace std::chrono;
 
-using fut_proc = std::variant<std::vector<std::string>, std::vector<table_row>>;
-
 namespace{
     std::vector<std::string> tables;
     fs::path dbms_path;
@@ -172,17 +170,6 @@ namespace{
         delr,
         getr
     };
-
-    struct bkg_request{
-        std::string group;
-        entity_type ent_type;
-        std::string entity;
-        task_type t;
-        fut_proc a;
-    };
-
-    std::queue<bkg_request> bkg_queue;
-    std::mutex bkg_mutex;
 }
 
 //Utility functions that can be used in other Projects
@@ -226,6 +213,72 @@ std::map<std::string, base> arg_parser(const std::vector<std::string> &a){
         answer[std::string(key)] = value;
     }
     return answer;
+}
+
+//data force writer
+void data_write(fs::path pth, entity_type et, table_data dat, int partition = -1){
+    int part = partition;
+    if(partition<-1) throw std::logic_error("Invalid Partition. Aborting!");
+    if (partition==-1) {
+        std::shared_ptr<schema> meta = cacheschema.get_schema(pth/"meta.bin");
+        part = std::get<int>(meta->args["max_part_id"])+1;
+    }
+
+    if(et==entity_type::table) {
+        fs::path partition_path = pth/("part_"+std::to_string(part));
+        //remove if exists
+        fs::remove_all(partition_path);
+        fs::create_directory(partition_path);
+        
+        
+    }
+
+
+}
+
+//Sets rule
+void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type type){
+    //Implement the rule procedure. 
+    
+    std::shared_ptr<schema> sch;
+    try {
+        sch = cacheschema.get_schema(rule_pth);
+    } catch (const std::exception &E) {
+        sch = std::make_shared<schema>(schema(rule_pth,type));
+        cacheschema.set_schema(sch);
+    }
+    std::map<std::string, base> update = arg_parser(rules);
+    for(auto it:update){
+        sch->args[it.first] = it.second;
+    }
+}
+
+//Inserts Rows into a table
+void insert_rows(request *req, fs::path loc){
+    std::shared_ptr<schema> data_structure = cacheschema.get_schema(loc/"col.bin");
+    std::vector<std::pair<std::string, col_type>> columns(data_structure->get_columns());
+    bool ok = true;
+    for (auto it : req->data) {
+        if(it.size()!=columns.size()) {
+            req->result.set_value({{{"Incorrect Size for the insertion operation"}}});
+            break;
+        }
+        for(int i = 0;i<it.size();i++){
+            if(it[i].index()!= static_cast<size_t>(columns[i].second)) {
+                req->result.set_value({{{"Input Data doesn't match schema column type"}}});
+                ok = false;
+                break;
+            }
+        }
+        if(ok==false) break;
+    }
+    if(!ok) return;
+    
+    req->result.set_value({{{std::to_string(req->data.size())+" rows inserted."}}});
+    /*
+        create a new partition and save all the rows being inserted. 
+        rebalance later
+    */
 }
 
 
@@ -278,54 +331,6 @@ void dbms::loop() {
     }
 }
 
-//Sets rule
-void rule_set(fs::path rule_pth, std::vector<std::string> rules, schema_type type){
-    //Implement the rule procedure. 
-    
-    std::shared_ptr<schema> sch;
-    try {
-        sch = cacheschema.get_schema(rule_pth);
-    } catch (const std::exception &E) {
-        sch = std::make_shared<schema>(schema(rule_pth,type));
-        cacheschema.set_schema(sch);
-    }
-    std::map<std::string, base> update = arg_parser(rules);
-    for(auto it:update){
-        sch->args[it.first] = it.second;
-    }
-}
-
-//Inserts Rows into a table
-void insert_rows(request *req, fs::path loc){
-    std::shared_ptr<schema> data_structure = cacheschema.get_schema(loc/"col.bin");
-    std::vector<std::pair<std::string, col_type>> columns(data_structure->get_columns());
-    bool ok = true;
-    for (auto it : req->data) {
-        if(it.size()!=columns.size()) {
-            req->result.set_value({{{"Incorrect Size for the insertion operation"}}});
-            break;
-        }
-        for(int i = 0;i<it.size();i++){
-            if(it[i].index()!= static_cast<size_t>(columns[i].second)) {
-                req->result.set_value({{{"Input Data doesn't match schema column type"}}});
-                ok = false;
-                break;
-            }
-        }
-        if(ok==false) break;
-    }
-    if(ok) {
-        fs::path partition_path = loc/"part";
-        
-        req->result.set_value({{{std::to_string(req->data.size())+" rows inserted."}}});
-    }
-
-    /*
-        create a new partition and save all the rows being inserted. 
-        rebalance later
-    */
-}
-
 //Function router
 void dbms::task_fn(request req){
     //Test the table
@@ -338,8 +343,9 @@ void dbms::task_fn(request req){
                 req.result.set_value({{{"Failed to create Group"}}});
                 return;
             }
+            rule_set(group_path/"meta.bin", {}, schema_type::meta);
         case request_type::set_group_rule:
-            rule_set(group_path/"cnfg.bin", req.args, schema_type::config);
+            rule_set(group_path/"confg.bin", req.args, schema_type::config);
             break;
         case request_type::create_table:
             if(!fs::exists(group_path)){
@@ -351,10 +357,12 @@ void dbms::task_fn(request req){
                 req.result.set_value({{{"Failed to create Table"}}});
                 return;
             }
+            rule_set(entity_path/"meta.bin", {}, schema_type::meta);
+            rule_set(entity_path/"config.bin", {}, schema_type::config);
             rule_set(entity_path/"col.bin", req.args, schema_type::columns);
             break;
         case request_type::set_table_rule:
-            entity_path = group_path/"table"/req.entity/"cnfig.bin";
+            entity_path = group_path/"table"/req.entity/"config.bin";
             rule_set(entity_path, req.args, schema_type::config);
             break;
 

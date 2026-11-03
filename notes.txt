@@ -13,7 +13,8 @@ File structure ->
     │   └── <table>/
     │       ├── config/              # partition key, sort key, compression, TTL
     │       ├── meta/                # schema, versions, manifest of live parts
-    │       └── <partition_id>/                      # e.g. date=2026-10-24
+    │       ├── col/                 # columns
+    │       └── <partition_id>/
     │           └── part_<min>_<max>_<level>/        # immutable part
     │               ├── meta                         # rows, min/max, schema version
     │               ├── <column>.dat                 # one file per column

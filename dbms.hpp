@@ -21,10 +21,10 @@ enum class col_type {
     null        //0 Bytes
 };
 
-//Basic value (need to add vector as well)
+//Basic value (Use std::string in case multiple values are requried)
 using base = std::variant<bool, int, double, std::string>;
 
-//For each row on the table
+//For each row on the table (maybe convert to the struct for specific functions)
 using table_row = std::vector<base>;
 
 //Basic Data Structure. (Supports all the functions like join and filter)
