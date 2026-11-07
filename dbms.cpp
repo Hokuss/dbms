@@ -165,10 +165,15 @@ namespace{
         vgraphs
     };
 
-    enum class task_type{
-        insertr,
-        delr,
-        getr
+    class col{
+        public:
+            fs::path pth;
+            std::vector<base> get_col(std::vector<int> rows){
+                
+            }
+            col(fs::path path, std::vector<base> dat){
+                
+            }
     };
 }
 
@@ -217,19 +222,23 @@ std::map<std::string, base> arg_parser(const std::vector<std::string> &a){
 
 //data force writer
 void data_write(fs::path pth, entity_type et, table_data dat, int partition = -1){
-    int part = partition;
-    if(partition<-1) throw std::logic_error("Invalid Partition. Aborting!");
-    if (partition==-1) {
-        std::shared_ptr<schema> meta = cacheschema.get_schema(pth/"meta.bin");
-        part = std::get<int>(meta->args["max_part_id"])+1;
-    }
-
     if(et==entity_type::table) {
+        int part = partition;
+        if(partition<-1) throw std::logic_error("Invalid Partition. Aborting!");
+        if (partition==-1) {
+            std::shared_ptr<schema> meta = cacheschema.get_schema(pth/"meta.bin");
+            part = std::get<int>(meta->args["max_part_id"])+1;
+        }
         fs::path partition_path = pth/("part_"+std::to_string(part));
         //remove if exists
         fs::remove_all(partition_path);
         fs::create_directory(partition_path);
-        
+        std::vector<std::pair<std::string, col_type>> columns(cacheschema.get_schema(pth/"col.bin")->get_columns());
+
+        std::vector<fs::path> cols;
+        for (auto it : columns) {
+            
+        }
         
     }
 
